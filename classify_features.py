@@ -25,6 +25,7 @@ def parse_args():
     # WIP
     # parser.add_argument('--iterations', type=int, default=1, help='Number of random repetitions for k-fold/classifier seeds. Final results will consider average/variance of all K*iterations')
     parser.add_argument('--seed', type=int, default=666999, help='Base random seed for weight initialization and data splits/shuffle')
+    parser.add_argument('--random_kfold', type=int, default=2, help='K value for random stratified splits of datasets without fixed train/test splits')
    
     return parser.parse_args()
 
@@ -59,6 +60,37 @@ import pickle
 import time
 from joblib import parallel_backend
 
+DATASET_ROOTS = {
+    'Kylberg': r'E:\MyTextureDatasets\Kylberg\without-rotations',
+    'CUReTgrey': r'E:\MyTextureDatasets\CURET\curetgrey',
+    'KTHgrey': r'E:\MyTextureDatasets\KTH\KTH-TIPS\KTH_TIPS_grey',
+    'UMD': r'E:\MyTextureDatasets\UMD',
+    'ALOT': r'E:\MyTextureDatasets\ALOT\grey4',
+}
+
+RANDOM_SPLIT_DATASETS = {'Kylberg', 'CUReTgrey', 'KTHgrey', 'UMD', 'ALOT'}
+
+def resolve_dataset_path(data_path, dataset_name):
+    if dataset_name in DATASET_ROOTS and os.path.isdir(DATASET_ROOTS[dataset_name]):
+        return DATASET_ROOTS[dataset_name]
+
+    dataset_subdirs = {
+        'Kylberg': [os.path.join('Kylberg', 'without-rotations')],
+        'CUReTgrey': [os.path.join('CURET', 'curetgrey')],
+        'KTHgrey': [os.path.join('KTH', 'KTH-TIPS', 'KTH_TIPS_grey')],
+        'UMD': ['UMD'],
+        'ALOT': [os.path.join('ALOT', 'grey4')],
+    }
+
+    candidates = [os.path.join(data_path, dataset_name)]
+    for subdir in dataset_subdirs.get(dataset_name, []):
+        candidates.append(os.path.join(data_path, subdir))
+
+    for candidate in candidates:
+        if os.path.isdir(candidate):
+            return candidate
+    return candidates[0]
+
 if __name__ == "__main__":
     start_time = time.time()
     args = parse_args()       
@@ -74,11 +106,18 @@ if __name__ == "__main__":
                  'Outex' : datasets.Outex,
                  'MINC': datasets.MINC,
                  'GTOS': datasets.GTOS,
-                 'GTOS-Mobile': datasets.GTOS_mobile
+                 'GTOS-Mobile': datasets.GTOS_mobile,
+                 'Kylberg': datasets.Kylberg,
+                 'CUReTgrey': datasets.CUReTgrey,
+                 'KTHgrey': datasets.KTHgrey,
+                 'UMD': datasets.UMD,
+                 'ALOT': datasets.ALOT
                 }
 
     ##########
-    path = os.path.join(args.data_path, args.dataset)
+    path = resolve_dataset_path(args.data_path, args.dataset)
+    if args.dataset in RANDOM_SPLIT_DATASETS and args.random_kfold < 2:
+        raise ValueError('--random_kfold must be at least 2 for random stratified splits')
     os.makedirs(os.path.join(args.output_path, 'feature_matrix', args.dataset), exist_ok=True)
     os.makedirs(os.path.join(args.output_path, 'classification', args.dataset), exist_ok=True)
      
@@ -115,9 +154,11 @@ if __name__ == "__main__":
     args.iterations = 1
     if args.dataset == 'Outex13' or args.dataset == 'Outex14' or args.dataset == 'Outex10' or args.dataset == 'Outex11' or args.dataset == 'GTOS-Mobile':
         args.K = 1 #these Outexes and GTOS have a single train/test split
+    elif args.dataset in RANDOM_SPLIT_DATASETS:
+        args.K = args.random_kfold
     elif args.dataset == 'DTD':
         args.K = 10 #DTD have a fixed set of 10 splits
-    elif 'KTH' in args.dataset:
+    elif args.dataset == 'KTH-TIPS2-b':
         args.K = 4 #KTH2 have a fixed set of 4 splits
     elif args.dataset == 'MINC'  or args.dataset == 'GTOS':
         args.K = 5 #MINC and GTOS have a fixed set of 5 splits
@@ -146,7 +187,7 @@ if __name__ == "__main__":
         random.seed(seed)
         np.random.seed(seed)
     
-        if 'KTH' in args.dataset:
+        if args.dataset == 'KTH-TIPS2-b':
             crossval = model_selection.PredefinedSplit        
         elif args.dataset != 'DTD' and args.dataset != 'MINC' and 'Outex' not in args.dataset and 'GTOS-Mobile' not in args.dataset:
             crossval = model_selection.StratifiedKFold(n_splits=splits, shuffle=True, random_state=seed+1)
@@ -257,7 +298,7 @@ if __name__ == "__main__":
                             # io.savemat(file + '.mat', {'X': X_, 'Y': Y_, 'files':files})
                             ###################################################################################
                             
-                            if 'KTH' in args.dataset:
+                            if args.dataset == 'KTH-TIPS2-b':
                                 crossval = crossval(DATASETS_[args.dataset](root=path, load_all=False).splits) 
                                 
                             crossval.get_n_splits(X_, Y_)

@@ -17,6 +17,8 @@ import pathlib
 from PIL import Image
 import numpy as np
 
+IMG_EXTENSIONS = ('.jpg', '.jpeg', '.png', '.ppm', '.bmp', '.pgm', '.tif', '.tiff')
+
 #this is for getting all images in a directory (including subdirs)
 def getListOfFiles(dirName):
     # create a list of all files in a root dir
@@ -30,6 +32,106 @@ def getListOfFiles(dirName):
             allFiles.append(fullPath)
                 
     return allFiles
+
+def is_image_file(filename):
+    return filename.lower().endswith(IMG_EXTENSIONS)
+
+def natural_key(value):
+    name = str(value)
+    parts = []
+    current = ''
+    for char in name:
+        same_type = bool(current) and char.isdigit() == current.isdigit()
+        if same_type:
+            current += char
+        else:
+            if current:
+                parts.append(int(current) if current.isdigit() else current.lower())
+            current = char
+    if current:
+        parts.append(int(current) if current.isdigit() else current.lower())
+    return parts
+
+class FolderTextureDataset(Dataset):
+    """
+    Loads texture datasets where each class is stored in one top-level folder.
+    The returned image is always RGB, so grayscale datasets can still use
+    ImageNet-pretrained timm backbones.
+    """
+    def __init__(self, root, transform=None, load_all=True, grayscale=False):
+        self.root = root
+        self.transform = transform
+        self.load_all = load_all
+        self.grayscale = grayscale
+        self.data = []
+        self.targets = []
+
+        class_dirs = [
+            item for item in os.listdir(root)
+            if os.path.isdir(os.path.join(root, item))
+        ]
+        class_dirs = sorted(class_dirs, key=natural_key)
+        self.classes = class_dirs
+        self.class_to_idx = dict(zip(self.classes, range(len(self.classes))))
+
+        self._image_files = []
+        self._labels = []
+        for class_name in self.classes:
+            class_path = os.path.join(root, class_name)
+            image_files = [
+                file for file in getListOfFiles(class_path)
+                if is_image_file(file)
+            ]
+            for image_file in sorted(image_files, key=natural_key):
+                self._image_files.append(image_file)
+                self._labels.append(self.class_to_idx[class_name])
+
+        if self.load_all:
+            for image_file, label in zip(self._image_files, self._labels):
+                if self.grayscale:
+                    self.data.append(Image.open(image_file).convert('L').convert('RGB'))
+                else:
+                    self.data.append(Image.open(image_file).convert('RGB'))
+                self.targets.append(label)
+        else:
+            self.targets = list(self._labels)
+
+        print(len(self.classes), 'classes')
+
+    def __len__(self):
+        return len(self._image_files)
+
+    def __getitem__(self, idx):
+        if torch.is_tensor(idx):
+            idx = idx.tolist()
+        if self.load_all:
+            image = self.data[idx]
+            target = self.targets[idx]
+        else:
+            image_file = self._image_files[idx]
+            if self.grayscale:
+                image = Image.open(image_file).convert('L').convert('RGB')
+            else:
+                image = Image.open(image_file).convert('RGB')
+            target = self._labels[idx]
+        if self.transform:
+            image = self.transform(image)
+        return image, target
+
+class Kylberg(FolderTextureDataset):
+    pass
+
+class CUReTgrey(FolderTextureDataset):
+    pass
+
+class KTHgrey(FolderTextureDataset):
+    pass
+
+class UMD(FolderTextureDataset):
+    pass
+
+class ALOT(FolderTextureDataset):
+    pass
 
 class Vistex(Dataset):
     """Vistex    
